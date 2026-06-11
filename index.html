@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conexiones: Edición Teología</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        facil: '#f9df6d',
+                        medio: '#a0c35a',
+                        dificil: '#b0c4ef',
+                        muydificil: '#ba81c5',
+                        cardBg: '#efefe6',
+                        cardText: '#000000',
+                        selectedBg: '#5a594e',
+                        selectedText: '#ffffff',
+                    },
+                    fontFamily: {
+                        sans: ['Helvetica', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
+        }
+        .shake {
+            animation: shake 0.4s ease-in-out;
+        }
+        
+        .tarjeta {
+            transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
+        }
+        
+        .toast-transition {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+            transform: translateY(-20px);
+        }
+        .toast-transition.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-white text-gray-900 font-sans min-h-screen flex flex-col items-center py-8 relative selection:bg-gray-200">
+
+    <!-- Toast -->
+    <div id="toast" class="fixed top-12 bg-black text-white px-5 py-3 rounded-md shadow-lg opacity-0 pointer-events-none z-50 toast-transition font-bold tracking-wide text-sm">
+        Mensaje
+    </div>
+
+    <div class="w-full max-w-[600px] px-4 flex flex-col items-center">
+        
+        <!-- Headers -->
+        <h1 class="text-3xl sm:text-4xl font-bold mb-2 text-center tracking-tight">Conexiones: Edición Teología</h1>
+        <p class="text-base sm:text-lg mb-8 text-center text-gray-700">Crea 4 grupos de 4 palabras</p>
+
+        <!-- Board -->
+        <div class="w-full mb-8">
+            <!-- Solved categories -->
+            <div id="categorias-resueltas" class="flex flex-col gap-2 mb-2 w-full"></div>
+            
+            <!-- Words Grid -->
+            <div id="grid-palabras" class="grid grid-cols-4 gap-2 w-full"></div>
+        </div>
+
+        <!-- Lives -->
+        <div class="flex items-center gap-3 mb-8 h-6">
+            <span class="text-sm sm:text-base text-gray-600">Errores restantes:</span>
+            <div id="vidas" class="flex gap-2">
+                <!-- Circles will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex gap-2 sm:gap-4 h-12">
+            <button id="btn-mezclar" class="px-4 sm:px-6 font-bold rounded-full border border-gray-400 hover:bg-gray-100 transition-colors text-sm sm:text-base">Mezclar</button>
+            <button id="btn-deseleccionar" class="px-4 sm:px-6 font-bold rounded-full border border-gray-400 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent text-sm sm:text-base">Deseleccionar</button>
+            <button id="btn-enviar" class="px-4 sm:px-6 font-bold rounded-full border border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">Enviar</button>
+        </div>
+
+    </div>
+
+    <script>
+        const categorias = [
+            {
+                nivel: 1,
+                color: "#f9df6d",
+                titulo: "PASOS DE LA LECTIO DIVINA",
+                palabras: ["LECTIO", "MEDITATIO", "ORATIO", "CONTEMPLATIO"]
+            },
+            {
+                nivel: 2,
+                color: "#a0c35a",
+                titulo: "AUTORES CLÁSICOS HISTÓRICOS",
+                palabras: ["PLATÓN", "JULIO CÉSAR", "HOMERO", "ARISTÓTELES"]
+            },
+            {
+                nivel: 3,
+                color: "#b0c4ef",
+                titulo: "DOCUMENTOS MAGISTERIALES",
+                palabras: ["DEI VERBUM", "VERBUM DOMINI", "DIVINO AFFLANTE", "CATECISMO"]
+            },
+            {
+                nivel: 4,
+                color: "#ba81c5",
+                titulo: "CONCEPTOS TEOLÓGICOS",
+                palabras: ["INERRANCIA", "INSPIRACIÓN", "TIPOLOGÍA", "MAGISTERIO"]
+            }
+        ];
+
+        let palabrasDisponibles = [];
+        let seleccionadas = [];
+        let categoriasResueltas = [];
+        let erroresRestantes = 4;
+        let juegoTerminado = false;
+        const ESTADO_KEY = 'conexiones_teologia_estado';
+        
+        const mapaPalabraCategoria = new Map();
+
+        const gridPalabras = document.getElementById('grid-palabras');
+        const contCategoriasResueltas = document.getElementById('categorias-resueltas');
+        const contVidas = document.getElementById('vidas');
+        const btnMezclar = document.getElementById('btn-mezclar');
+        const btnDeseleccionar = document.getElementById('btn-deseleccionar');
+        const btnEnviar = document.getElementById('btn-enviar');
+        const toastEl = document.getElementById('toast');
+        let toastTimeout;
+
+        function cargarEstado() {
+            const estadoStr = localStorage.getItem(ESTADO_KEY);
+            if (estadoStr) {
+                const estado = JSON.parse(estadoStr);
+                erroresRestantes = estado.erroresRestantes;
+                juegoTerminado = estado.juegoTerminado;
+                
+                if (estado.categoriasResueltasIds) {
+                    estado.categoriasResueltasIds.forEach(id => {
+                        const cat = categorias.find(c => c.nivel === id);
+                        if (cat) categoriasResueltas.push(cat);
+                    });
+                }
+            }
+        }
+
+        function guardarEstado() {
+            const estado = {
+                erroresRestantes,
+                categoriasResueltasIds: categoriasResueltas.map(c => c.nivel),
+                juegoTerminado
+            };
+            localStorage.setItem(ESTADO_KEY, JSON.stringify(estado));
+        }
+
+        function inicializar() {
+            cargarEstado();
+
+            categorias.forEach(cat => {
+                if (!categoriasResueltas.includes(cat)) {
+                    cat.palabras.forEach(palabra => {
+                        palabrasDisponibles.push(palabra);
+                    });
+                }
+                cat.palabras.forEach(palabra => {
+                    mapaPalabraCategoria.set(palabra, cat);
+                });
+            });
+            mezclarArray(palabrasDisponibles);
+
+            if (juegoTerminado && erroresRestantes === 0) {
+                revelarRespuestas();
+                mostrarToast("¡Mejor suerte la próxima!", true);
+            } else if (juegoTerminado && categoriasResueltas.length === 4) {
+                mostrarToast("¡Vos ganaste!", true);
+            }
+
+            renderizar();
+        }
+
+        function mezclarArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function mostrarToast(mensaje, permanente = false) {
+            toastEl.textContent = mensaje;
+            toastEl.classList.add('show');
+            clearTimeout(toastTimeout);
+            if (!permanente) {
+                toastTimeout = setTimeout(() => {
+                    toastEl.classList.remove('show');
+                }, 2000);
+            }
+        }
+
+        function toggleSeleccion(palabra) {
+            if (juegoTerminado) return;
+            
+            const index = seleccionadas.indexOf(palabra);
+            if (index > -1) {
+                seleccionadas.splice(index, 1);
+            } else {
+                if (seleccionadas.length < 4) {
+                    seleccionadas.push(palabra);
+                }
+            }
+            renderizar();
+        }
+
+        function evaluarSeleccion() {
+            if (seleccionadas.length !== 4) return;
+            
+            // Contar cuántas palabras pertenecen a cada categoría seleccionada
+            const conteo = new Map();
+            seleccionadas.forEach(palabra => {
+                const cat = mapaPalabraCategoria.get(palabra);
+                conteo.set(cat, (conteo.get(cat) || 0) + 1);
+            });
+
+            const maxCoincidencias = Math.max(...Array.from(conteo.values()));
+
+            if (maxCoincidencias === 4) {
+                // Correcto: las 4 palabras pertenecen a la misma categoría
+                const catResuelta = Array.from(conteo.keys())[0];
+                categoriasResueltas.push(catResuelta);
+                
+                // Remover las palabras resueltas de las disponibles
+                palabrasDisponibles = palabrasDisponibles.filter(p => !seleccionadas.includes(p));
+                seleccionadas = [];
+                
+                if (categoriasResueltas.length === 4) {
+                    juegoTerminado = true;
+                    // Pequeño delay para mostrar el mensaje final
+                    setTimeout(() => mostrarToast("¡Vos ganaste!", true), 300);
+                }
+                guardarEstado();
+                renderizar();
+            } else {
+                // Incorrecto
+                if (maxCoincidencias === 3) {
+                    mostrarToast("¡Estás a un paso!");
+                } else {
+                    mostrarToast("No es correcto");
+                }
+                
+                animarError();
+                
+                // Restar una vida si no es correcto
+                erroresRestantes--;
+                guardarEstado();
+                
+                if (erroresRestantes === 0) {
+                    juegoTerminado = true;
+                    guardarEstado();
+                    setTimeout(() => {
+                        mostrarToast("¡Mejor suerte la próxima!", true);
+                        revelarRespuestas();
+                    }, 500); // Dar tiempo para ver la animación de error
+                }
+                renderizar();
+            }
+        }
+
+        function animarError() {
+            const botones = document.querySelectorAll('.tarjeta.seleccionada');
+            botones.forEach(btn => {
+                btn.classList.add('shake');
+                setTimeout(() => btn.classList.remove('shake'), 400);
+            });
+        }
+
+        function revelarRespuestas() {
+            categorias.forEach(cat => {
+                if (!categoriasResueltas.includes(cat)) {
+                    categoriasResueltas.push(cat);
+                }
+            });
+            palabrasDisponibles = [];
+            seleccionadas = [];
+            renderizar();
+        }
+
+        function renderizar() {
+            // Renderizar Categorías Resueltas (arriba)
+            contCategoriasResueltas.innerHTML = '';
+            categoriasResueltas.forEach(cat => {
+                const div = document.createElement('div');
+                div.className = 'w-full rounded-md flex flex-col items-center justify-center p-3 sm:p-5 min-h-[70px] sm:min-h-[85px] animate-fade-in';
+                div.style.backgroundColor = cat.color;
+                
+                const title = document.createElement('div');
+                title.className = 'font-bold text-sm sm:text-lg mb-0.5 sm:mb-1 tracking-widest uppercase';
+                title.textContent = cat.titulo;
+                
+                const words = document.createElement('div');
+                words.className = 'text-xs sm:text-base uppercase tracking-wide';
+                words.textContent = cat.palabras.join(', ');
+                
+                div.appendChild(title);
+                div.appendChild(words);
+                contCategoriasResueltas.appendChild(div);
+            });
+
+            // Renderizar Grid de Palabras (abajo)
+            gridPalabras.innerHTML = '';
+            palabrasDisponibles.forEach(palabra => {
+                const isSelected = seleccionadas.includes(palabra);
+                const btn = document.createElement('button');
+                btn.textContent = palabra;
+                
+                btn.className = `tarjeta flex items-center justify-center font-bold uppercase rounded-md p-2 text-[10px] sm:text-[14px] leading-tight text-center aspect-[2.2/1] sm:aspect-[2.5/1] cursor-pointer select-none break-words ${isSelected ? 'seleccionada bg-selectedBg text-selectedText' : 'bg-cardBg text-cardText hover:bg-gray-300'}`;
+                
+                btn.onclick = () => toggleSeleccion(palabra);
+                gridPalabras.appendChild(btn);
+            });
+
+            // Actualizar Vidas
+            contVidas.innerHTML = '';
+            for (let i = 0; i < erroresRestantes; i++) {
+                const circle = document.createElement('div');
+                circle.className = 'w-3.5 h-3.5 bg-gray-600 rounded-full transition-all';
+                contVidas.appendChild(circle);
+            }
+
+            // Estado de los Botones
+            btnDeseleccionar.disabled = seleccionadas.length === 0;
+            if(seleccionadas.length > 0) {
+                btnDeseleccionar.classList.remove('opacity-50', 'text-gray-400');
+            } else {
+                btnDeseleccionar.classList.add('opacity-50', 'text-gray-400');
+            }
+
+            btnEnviar.disabled = seleccionadas.length !== 4;
+            if(seleccionadas.length === 4) {
+                btnEnviar.classList.remove('opacity-50', 'text-gray-400');
+                btnEnviar.classList.add('bg-black', 'text-white', 'border-black');
+                btnEnviar.classList.remove('hover:bg-gray-100');
+            } else {
+                btnEnviar.classList.add('opacity-50', 'text-gray-400');
+                btnEnviar.classList.remove('bg-black', 'text-white', 'border-black');
+                btnEnviar.classList.add('hover:bg-gray-100');
+            }
+
+            if (juegoTerminado) {
+                btnMezclar.disabled = true;
+                btnDeseleccionar.disabled = true;
+                btnEnviar.disabled = true;
+                btnMezclar.classList.add('opacity-50');
+                btnDeseleccionar.classList.add('opacity-50');
+                btnEnviar.classList.add('opacity-50');
+            }
+        }
+
+        // Event Listeners para botones
+        btnMezclar.onclick = () => {
+            if (juegoTerminado) return;
+            mezclarArray(palabrasDisponibles);
+            renderizar();
+        };
+
+        btnDeseleccionar.onclick = () => {
+            if (juegoTerminado) return;
+            seleccionadas = [];
+            renderizar();
+        };
+
+        btnEnviar.onclick = () => {
+            if (juegoTerminado) return;
+            evaluarSeleccion();
+        };
+
+        // Iniciar juego al cargar
+        inicializar();
+    </script>
+</body>
+</html>
